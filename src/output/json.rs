@@ -1,3 +1,5 @@
+#![cfg(feature = "json")]
+
 use crate::model::system::SystemInfo;
 
 pub fn print(info: &SystemInfo) {

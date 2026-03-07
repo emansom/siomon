@@ -2,6 +2,7 @@
 pub mod csv;
 #[cfg(feature = "html")]
 pub mod html;
+#[cfg(feature = "json")]
 pub mod json;
 pub mod text;
 #[cfg(feature = "tui")]

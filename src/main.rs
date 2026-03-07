@@ -42,7 +42,10 @@ fn main() {
     let info = collect_all(&cli);
 
     let print_formatted = |info: &SystemInfo| match cli.format {
+        #[cfg(feature = "json")]
         OutputFormat::Json => output::json::print(info),
+        #[cfg(not(feature = "json"))]
+        OutputFormat::Json => eprintln!("JSON output not available — compile with 'json' feature"),
         #[cfg(feature = "xml")]
         OutputFormat::Xml => output::xml::print(info),
         #[cfg(not(feature = "xml"))]
@@ -128,13 +131,21 @@ fn run_sensor_snapshot(cli: &Cli, label_overrides: &std::collections::HashMap<St
     sorted.sort_by(|a, b| a.0.natural_cmp(&b.0));
 
     if cli.format == OutputFormat::Json {
-        let map: std::collections::HashMap<String, _> = sorted
-            .into_iter()
-            .map(|(id, r)| (id.to_string(), r))
-            .collect();
-        match serde_json::to_string_pretty(&map) {
-            Ok(json) => println!("{json}"),
-            Err(e) => eprintln!("JSON error: {e}"),
+        #[cfg(feature = "json")]
+        {
+            let map: std::collections::HashMap<String, _> = sorted
+                .into_iter()
+                .map(|(id, r)| (id.to_string(), r))
+                .collect();
+            match serde_json::to_string_pretty(&map) {
+                Ok(json) => println!("{json}"),
+                Err(e) => eprintln!("JSON error: {e}"),
+            }
+        }
+        #[cfg(not(feature = "json"))]
+        {
+            let _ = sorted;
+            eprintln!("JSON output not available — compile with 'json' feature");
         }
     } else {
         let mut last_chip = String::new();
