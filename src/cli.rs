@@ -27,6 +27,10 @@ pub struct Cli {
     #[arg(long)]
     pub no_nvidia: bool,
 
+    /// Enable direct I/O port and I2C sensor reading (requires root)
+    #[arg(long, global = true)]
+    pub direct_io: bool,
+
     /// Show empty/unavailable fields
     #[arg(long)]
     pub show_empty: bool,

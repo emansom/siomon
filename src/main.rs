@@ -90,6 +90,7 @@ fn run_monitor(cli: &Cli, label_overrides: std::collections::HashMap<String, Str
             state.clone(),
             cli.interval,
             cli.no_nvidia,
+            cli.direct_io,
             label_overrides,
         );
         let _handle = poller.spawn();
@@ -126,7 +127,7 @@ fn run_monitor(cli: &Cli, label_overrides: std::collections::HashMap<String, Str
 }
 
 fn run_sensor_snapshot(cli: &Cli, label_overrides: &std::collections::HashMap<String, String>) {
-    let readings = sensors::poller::snapshot(cli.no_nvidia, label_overrides);
+    let readings = sensors::poller::snapshot(cli.no_nvidia, cli.direct_io, label_overrides);
     let mut sorted: Vec<_> = readings.into_iter().collect();
     sorted.sort_by(|a, b| a.0.natural_cmp(&b.0));
 

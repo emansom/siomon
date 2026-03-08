@@ -4,6 +4,8 @@ pub mod cpu_util;
 pub mod disk_activity;
 pub mod gpu_sensors;
 pub mod hwmon;
+pub mod i2c;
 pub mod network_stats;
 pub mod poller;
 pub mod rapl;
+pub mod superio;

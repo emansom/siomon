@@ -2,5 +2,6 @@ pub mod msr;
 pub mod nvme_ioctl;
 #[cfg(feature = "nvidia")]
 pub mod nvml;
+pub mod port_io;
 pub mod procfs;
 pub mod sysfs;

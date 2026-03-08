@@ -4,7 +4,9 @@ use std::thread;
 use std::time::Duration;
 
 use crate::model::sensor::{SensorId, SensorReading};
-use crate::sensors::{cpu_freq, cpu_util, disk_activity, gpu_sensors, hwmon, network_stats, rapl};
+use crate::sensors::{
+    cpu_freq, cpu_util, disk_activity, gpu_sensors, hwmon, network_stats, rapl, superio,
+};
 
 pub type SensorState = Arc<RwLock<HashMap<SensorId, SensorReading>>>;
 
@@ -16,6 +18,7 @@ pub struct Poller {
     state: SensorState,
     interval: Duration,
     no_nvidia: bool,
+    direct_io: bool,
     label_overrides: HashMap<String, String>,
 }
 
@@ -24,12 +27,14 @@ impl Poller {
         state: SensorState,
         interval_ms: u64,
         no_nvidia: bool,
+        direct_io: bool,
         label_overrides: HashMap<String, String>,
     ) -> Self {
         Self {
             state,
             interval: Duration::from_millis(interval_ms),
             no_nvidia,
+            direct_io,
             label_overrides,
         }
     }
@@ -59,10 +64,35 @@ impl Poller {
         let mut disk_src = disk_activity::DiskActivitySource::discover();
         let mut net_src = network_stats::NetworkStatsSource::discover();
 
+        // Direct I/O sources (Super I/O, I2C) — only when --direct-io is set
+        let superio_src = if self.direct_io {
+            let chips = superio::chip_detect::detect_all();
+            chips
+                .into_iter()
+                .filter_map(|chip| {
+                    let src = superio::nct67xx::Nct67xxSource::new(chip);
+                    if src.is_supported() { Some(src) } else { None }
+                })
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+
+        let i2c_src = if self.direct_io {
+            let buses = crate::sensors::i2c::bus_scan::enumerate_smbus_adapters();
+            Some(crate::sensors::i2c::spd5118::Spd5118Source::discover(
+                &buses,
+            ))
+        } else {
+            None
+        };
+
         log::info!(
-            "Sensor poller started: {} hwmon chips, {} hwmon sensors",
+            "Sensor poller started: {} hwmon chips, {} hwmon sensors, {} superio chips, i2c: {}",
             hwmon_src.chip_count(),
-            hwmon_src.sensor_count()
+            hwmon_src.sensor_count(),
+            superio_src.len(),
+            if i2c_src.is_some() { "yes" } else { "no" },
         );
 
         while !stop.load(std::sync::atomic::Ordering::Relaxed) {
@@ -76,6 +106,14 @@ impl Poller {
             new_readings.extend(rapl_src.poll());
             new_readings.extend(disk_src.poll());
             new_readings.extend(net_src.poll());
+
+            // Direct I/O sources
+            for sio in &superio_src {
+                new_readings.extend(sio.poll());
+            }
+            if let Some(ref i2c) = i2c_src {
+                new_readings.extend(i2c.poll());
+            }
 
             // Update shared state
             if let Ok(mut state) = self.state.write() {
@@ -113,6 +151,7 @@ impl Drop for PollerHandle {
 /// Take a one-shot snapshot of all sensors (single poll cycle).
 pub fn snapshot(
     no_nvidia: bool,
+    direct_io: bool,
     label_overrides: &HashMap<String, String>,
 ) -> HashMap<SensorId, SensorReading> {
     let hwmon_src = hwmon::HwmonSource::discover(label_overrides);
@@ -147,6 +186,23 @@ pub fn snapshot(
     }
     for (id, reading) in net_src.poll() {
         map.insert(id, reading);
+    }
+
+    // Direct I/O sources
+    if direct_io {
+        for chip in superio::chip_detect::detect_all() {
+            let src = superio::nct67xx::Nct67xxSource::new(chip);
+            if src.is_supported() {
+                for (id, reading) in src.poll() {
+                    map.insert(id, reading);
+                }
+            }
+        }
+        let buses = crate::sensors::i2c::bus_scan::enumerate_smbus_adapters();
+        let i2c_src = crate::sensors::i2c::spd5118::Spd5118Source::discover(&buses);
+        for (id, reading) in i2c_src.poll() {
+            map.insert(id, reading);
+        }
     }
     map
 }

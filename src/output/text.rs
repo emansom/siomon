@@ -140,6 +140,22 @@ pub fn print_summary(info: &SystemInfo) {
     if let Some(ref me) = mb.me_version {
         println!("  ME Firmware:     {me}");
     }
+    // Show detected Super I/O chip if direct I/O is available
+    if unsafe { libc::geteuid() } == 0 {
+        let chips = crate::sensors::superio::chip_detect::detect_all();
+        for chip in &chips {
+            let driver_status =
+                if crate::sensors::superio::chip_detect::is_kernel_driver_loaded(&chip.chip) {
+                    " (kernel driver loaded)"
+                } else {
+                    ""
+                };
+            println!(
+                "  Super I/O:       {} (ID: {:#06x}) at base {:#06x}{}",
+                chip.chip, chip.chip_id, chip.hwm_base, driver_status
+            );
+        }
+    }
     println!();
 
     // GPU
