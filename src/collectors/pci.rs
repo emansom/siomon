@@ -1,14 +1,16 @@
 use crate::model::gpu::PcieLinkInfo;
-use crate::model::pci::{AerCounters, PciDevice};
+use crate::model::pci::{AerCounters, InterruptInfo, IrqVector, PciDevice};
 use crate::platform::sysfs;
 use pci_ids::FromId;
+use std::collections::HashMap;
 use std::path::Path;
 
 pub fn collect() -> Vec<PciDevice> {
+    let irq_map = parse_proc_interrupts();
     let mut devices = Vec::new();
 
     for entry in sysfs::glob_paths("/sys/bus/pci/devices/*") {
-        if let Some(dev) = collect_device(&entry) {
+        if let Some(dev) = collect_device(&entry, &irq_map) {
             devices.push(dev);
         }
     }
@@ -17,7 +19,7 @@ pub fn collect() -> Vec<PciDevice> {
     devices
 }
 
-fn collect_device(path: &Path) -> Option<PciDevice> {
+fn collect_device(path: &Path, irq_map: &HashMap<String, Vec<ParsedIrq>>) -> Option<PciDevice> {
     let address = path.file_name()?.to_string_lossy().to_string();
     let (domain, bus, device, function) = parse_bdf(&address)?;
 
@@ -39,6 +41,7 @@ fn collect_device(path: &Path) -> Option<PciDevice> {
         .unwrap_or(true);
 
     let pcie_link = collect_pcie_link(path);
+    let interrupts = build_interrupt_info(&address, irq_map);
     let aer = collect_aer(path);
 
     let (vendor_name, device_name) = resolve_pci_names(vendor_id, device_id);
@@ -65,7 +68,130 @@ fn collect_device(path: &Path) -> Option<PciDevice> {
         numa_node,
         pcie_link,
         enabled,
+        interrupts,
         aer,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// /proc/interrupts parser
+// ---------------------------------------------------------------------------
+
+struct ParsedIrq {
+    irq: u32,
+    count: u64,
+    mode: String,
+    trigger: String,
+    handler: String,
+}
+
+/// Parse /proc/interrupts and group PCI interrupt lines by device address.
+///
+/// Matches lines with `PCI-MSI-<bdf>` or `PCI-MSIX-<bdf>` type fields.
+/// Some ARM/GICv3 platforms format MSI differently (hwirq numbers instead of
+/// BDF addresses) — those will silently produce no matches, which is safe.
+fn parse_proc_interrupts() -> HashMap<String, Vec<ParsedIrq>> {
+    let content = match std::fs::read_to_string("/proc/interrupts") {
+        Ok(c) => c,
+        Err(_) => return HashMap::new(),
+    };
+    parse_interrupts_str(&content)
+}
+
+/// Try each prefix; return the remainder of the first match.
+fn strip_any_prefix<'a>(s: &'a str, prefixes: &[&str]) -> Option<&'a str> {
+    prefixes.iter().find_map(|p| s.strip_prefix(p))
+}
+
+fn parse_interrupts_str(content: &str) -> HashMap<String, Vec<ParsedIrq>> {
+    let mut map: HashMap<String, Vec<ParsedIrq>> = HashMap::new();
+    let mut lines = content.lines();
+
+    let header = match lines.next() {
+        Some(h) => h,
+        None => return map,
+    };
+    let cpu_count = header.split_whitespace().count();
+
+    for line in lines {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        // Need: IRQ + cpu_count counts + type + trigger + handler(s)
+        if parts.len() < cpu_count + 4 {
+            continue;
+        }
+
+        let irq_str = parts[0].strip_suffix(':').unwrap_or(parts[0]);
+        let irq: u32 = match irq_str.parse() {
+            Ok(n) => n,
+            Err(_) => continue,
+        };
+
+        let count: u64 = parts[1..=cpu_count]
+            .iter()
+            .filter_map(|s| s.parse::<u64>().ok())
+            .sum();
+
+        let type_field = parts[cpu_count + 1];
+
+        // Match PCI-MSI/MSIX with optional IR- prefix (Intel IOMMU remapping)
+        let (mode, pci_addr) =
+            if let Some(addr) = strip_any_prefix(type_field, &["PCI-MSIX-", "IR-PCI-MSIX-"]) {
+                ("MSI-X".to_string(), addr.to_string())
+            } else if let Some(addr) = strip_any_prefix(type_field, &["PCI-MSI-", "IR-PCI-MSI-"]) {
+                ("MSI".to_string(), addr.to_string())
+            } else {
+                continue;
+            };
+
+        let trigger_field = parts.get(cpu_count + 2).unwrap_or(&"");
+        let trigger = trigger_field
+            .rsplit('-')
+            .next()
+            .unwrap_or("edge")
+            .to_string();
+
+        let handler = parts[cpu_count + 3..].to_vec().join(" ");
+
+        map.entry(pci_addr).or_default().push(ParsedIrq {
+            irq,
+            count,
+            mode,
+            trigger,
+            handler,
+        });
+    }
+
+    map
+}
+
+/// Build InterruptInfo for a PCI device from the pre-parsed interrupt map.
+fn build_interrupt_info(
+    address: &str,
+    irq_map: &HashMap<String, Vec<ParsedIrq>>,
+) -> Option<InterruptInfo> {
+    let parsed = irq_map.get(address)?;
+    if parsed.is_empty() {
+        return None;
+    }
+
+    let mode = parsed[0].mode.clone();
+    let trigger = parsed[0].trigger.clone();
+    let total_count: u64 = parsed.iter().map(|p| p.count).sum();
+
+    let vectors = parsed
+        .iter()
+        .map(|p| IrqVector {
+            irq: p.irq,
+            count: p.count,
+            handler: p.handler.clone(),
+        })
+        .collect();
+
+    Some(InterruptInfo {
+        mode,
+        trigger,
+        vectors,
+        total_count,
     })
 }
 
@@ -247,5 +373,76 @@ mod tests {
     fn test_pcie_speed_to_gen_unknown() {
         assert_eq!(pcie_speed_to_gen("unknown"), None);
         assert_eq!(pcie_speed_to_gen("Unknown"), None);
+    }
+
+    #[test]
+    fn test_parse_interrupts_msi() {
+        let input = "\
+                   CPU0       CPU1
+  29:          0       1316  PCI-MSI-0000:f0:01.1    0-edge      PCIe PME aerdrv
+  30:          2          0  PCI-MSI-0000:f0:07.1    0-edge      PCIe PME
+";
+        let map = parse_interrupts_str(input);
+        assert_eq!(map.len(), 2);
+
+        let dev = &map["0000:f0:01.1"];
+        assert_eq!(dev.len(), 1);
+        assert_eq!(dev[0].irq, 29);
+        assert_eq!(dev[0].count, 1316);
+        assert_eq!(dev[0].mode, "MSI");
+        assert_eq!(dev[0].trigger, "edge");
+        assert!(dev[0].handler.contains("PCIe PME"));
+    }
+
+    #[test]
+    fn test_parse_interrupts_msix_multi_vector() {
+        let input = "\
+                   CPU0       CPU1
+  90:       1000       2000  PCI-MSIX-0000:21:00.0    0-edge      nvme1q0
+ 212:        500        500  PCI-MSIX-0000:21:00.0    1-edge      nvme1q1
+";
+        let map = parse_interrupts_str(input);
+        let dev = &map["0000:21:00.0"];
+        assert_eq!(dev.len(), 2);
+        assert_eq!(dev[0].count, 3000);
+        assert_eq!(dev[1].count, 1000);
+        assert_eq!(dev[0].handler, "nvme1q0");
+        assert_eq!(dev[1].handler, "nvme1q1");
+
+        let info = build_interrupt_info("0000:21:00.0", &map).unwrap();
+        assert_eq!(info.mode, "MSI-X");
+        assert_eq!(info.vectors.len(), 2);
+        assert_eq!(info.total_count, 4000);
+    }
+
+    #[test]
+    fn test_parse_interrupts_ir_prefix() {
+        let input = "\
+                   CPU0
+  42:       5000  IR-PCI-MSI-0000:00:1f.0    0-edge      i801_smbus
+  43:       3000  IR-PCI-MSIX-0000:02:00.0    0-edge      eth0
+";
+        let map = parse_interrupts_str(input);
+        assert_eq!(map["0000:00:1f.0"][0].mode, "MSI");
+        assert_eq!(map["0000:02:00.0"][0].mode, "MSI-X");
+    }
+
+    #[test]
+    fn test_parse_interrupts_skips_non_pci() {
+        let input = "\
+                   CPU0
+ NMI:          5   Non-maskable interrupts
+ LOC:    1234567   Local timer interrupts
+  42:       5000  PCI-MSI-0000:00:1f.0    0-edge      device
+";
+        let map = parse_interrupts_str(input);
+        assert_eq!(map.len(), 1);
+        assert!(map.contains_key("0000:00:1f.0"));
+    }
+
+    #[test]
+    fn test_parse_interrupts_empty() {
+        let map = parse_interrupts_str("");
+        assert!(map.is_empty());
     }
 }
