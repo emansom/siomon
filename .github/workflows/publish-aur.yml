@@ -1,0 +1,141 @@
+name: Publish to AUR
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Git tag to build (e.g., v0.3.0)'
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+    secrets:
+      AUR_SSH_PRIVATE_KEY:
+        required: true
+      PKG_GIT_NAME:
+        required: true
+      PKG_GIT_EMAIL:
+        required: true
+
+jobs:
+  publish:
+    name: Build and push to AUR
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install dependencies
+        run: pacman -Syu --noconfirm git cargo namcap pacman-contrib openssh
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve tag to commit hash
+        id: resolve
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          UPSTREAM_REPO="https://github.com/level1techs/siomon.git"
+          UPSTREAM_VERSION="${TAG#v}"
+          echo "==> Resolving tag $TAG to commit hash..."
+
+          # Try dereferenced tag first (annotated tags), then lightweight
+          COMMIT_HASH=$(git ls-remote "$UPSTREAM_REPO" "refs/tags/${TAG}^{}" 2>/dev/null | awk '{print $1}')
+          if [ -z "$COMMIT_HASH" ]; then
+            COMMIT_HASH=$(git ls-remote "$UPSTREAM_REPO" "refs/tags/${TAG}" 2>/dev/null | awk '{print $1}')
+          fi
+          if [ -z "$COMMIT_HASH" ]; then
+            echo "::error::Could not resolve tag $TAG from $UPSTREAM_REPO"
+            exit 1
+          fi
+
+          echo "    $TAG -> $COMMIT_HASH"
+          echo "commit_hash=$COMMIT_HASH" >> "$GITHUB_OUTPUT"
+          echo "upstream_version=$UPSTREAM_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare PKGBUILD
+        env:
+          UPSTREAM_VERSION: ${{ steps.resolve.outputs.upstream_version }}
+          COMMIT_HASH: ${{ steps.resolve.outputs.commit_hash }}
+        run: |
+          # Create non-root builder user (makepkg refuses to run as root)
+          useradd -m builder
+
+          cp packaging/aur/PKGBUILD /home/builder/PKGBUILD
+          cd /home/builder
+
+          # Update version fields
+          sed -i "s/^pkgver=.*/pkgver=${UPSTREAM_VERSION}/" PKGBUILD
+          sed -i "s/^_tag=.*/_tag=${COMMIT_HASH} # git rev-parse \"v\$pkgver\"/" PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+
+          chown builder:builder PKGBUILD
+
+          # Recompute checksums
+          echo "==> Recomputing b2sums..."
+          su builder -c "updpkgsums"
+
+      - name: Build and test
+        run: |
+          cd /home/builder
+          echo "==> Building package..."
+          su builder -c "makepkg -s --noconfirm"
+
+      - name: Generate .SRCINFO
+        run: |
+          cd /home/builder
+          su builder -c "makepkg --printsrcinfo > .SRCINFO"
+
+      - name: Validate with namcap
+        run: |
+          cd /home/builder
+          echo "==> Running namcap validation..."
+          su builder -c "namcap PKGBUILD" || true
+          for pkg in *.pkg.tar.*; do
+            [ -f "$pkg" ] && su builder -c "namcap $pkg" || true
+          done
+
+      - name: Push to AUR
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          PKG_GIT_NAME: ${{ secrets.PKG_GIT_NAME }}
+          PKG_GIT_EMAIL: ${{ secrets.PKG_GIT_EMAIL }}
+          UPSTREAM_VERSION: ${{ steps.resolve.outputs.upstream_version }}
+        run: |
+          # Set up SSH
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur_key
+          chmod 600 ~/.ssh/aur_key
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null
+
+          cat > ~/.ssh/config <<EOF
+          Host aur.archlinux.org
+            IdentityFile ~/.ssh/aur_key
+            User aur
+          EOF
+
+          eval "$(ssh-agent -s)"
+          ssh-add ~/.ssh/aur_key
+
+          # Configure git identity
+          git config --global user.name "$PKG_GIT_NAME"
+          git config --global user.email "$PKG_GIT_EMAIL"
+
+          # Clone AUR repo, update, commit, push
+          git clone ssh://aur@aur.archlinux.org/siomon.git /tmp/aur-siomon
+          cd /tmp/aur-siomon
+
+          cp /home/builder/PKGBUILD .
+          cp /home/builder/.SRCINFO .
+
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "No changes to push."
+          else
+            git commit -m "Update to ${UPSTREAM_VERSION}"
+            git push origin master
+            echo "==> Pushed to AUR successfully."
+          fi
