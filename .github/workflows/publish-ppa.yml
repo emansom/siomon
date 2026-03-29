@@ -237,6 +237,10 @@ jobs:
             # per series (e.g. Noble uses versioned cargo-1.85/rustc-1.85).
             cp -r "$GITHUB_WORKSPACE/packaging/launchpad/debian" "$BUILD_DIR/debian"
 
+            # Canonical udev/tmpfiles live in packaging/ — copy for debhelper
+            cp "$GITHUB_WORKSPACE/packaging/udev/50-siomon.rules" "$BUILD_DIR/debian/siomon.udev"
+            cp "$GITHUB_WORKSPACE/packaging/tmpfiles/siomon.conf" "$BUILD_DIR/debian/siomon.tmpfiles"
+
             # Write series-specific changelog
             # Changelog format: header at col 0, bullets at 2-space indent, trailer " -- "
             {
@@ -248,8 +252,8 @@ jobs:
               echo " -- ${PKG_GIT_NAME} <${PKG_GIT_EMAIL}>  $(date -R)"
             } > "$BUILD_DIR/debian/changelog"
 
-            # Adjust Build-Depends for series
-            sed -i "s/Build-Depends: debhelper-compat (= 13), cargo, rustc (>= 1.85)/Build-Depends: debhelper-compat (= 13), ${RUST_PKGS}/" \
+            # Adjust Build-Depends for series (replace cargo/rustc, keep other deps)
+            sed -i "s/cargo, rustc (>= 1.85)/${RUST_PKGS}/" \
               "$BUILD_DIR/debian/control"
 
             # Adjust cargo binary name in rules

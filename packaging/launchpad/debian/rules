@@ -25,6 +25,13 @@ override_dh_auto_clean:
 override_dh_clean:
 	dh_clean -Xvendor
 
+# Rules-Requires-Root: yes (in debian/control) ensures this override runs as
+# root. setcap(8) requires CAP_SETFCAP — without root the call silently fails.
+override_dh_fixperms:
+	dh_fixperms
+	# dh_fixperms strips file capabilities — re-apply them
+	setcap cap_perfmon,cap_sys_rawio=ep debian/siomon/usr/bin/sio
+
 # --ignore-missing-info: vendored crate build artifacts lack dpkg shlibdeps metadata
 override_dh_shlibdeps:
 	dh_shlibdeps --dpkg-shlibdeps-params=--ignore-missing-info

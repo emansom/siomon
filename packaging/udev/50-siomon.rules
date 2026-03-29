@@ -1,0 +1,24 @@
+# siomon — grant logged-in user access to sensor devices
+# TAG+="uaccess" sets a POSIX ACL via systemd-logind,
+# no group membership required.
+
+# AMD HSMP (socket power, DDR bandwidth, clocks)
+KERNEL=="hsmp", TAG+="uaccess"
+
+# IPMI BMC (temperature, voltage, fan, power)
+KERNEL=="ipmi[0-9]*", TAG+="uaccess"
+
+# I2C buses (PMBus VRMs, SPD DIMM thermal)
+# Broad match is intentional: sensor bus numbers are dynamically assigned and
+# vary per board — it is not possible to enumerate specific buses statically.
+KERNEL=="i2c-[0-9]*", TAG+="uaccess"
+
+# Port I/O (Super I/O chips: ITE IT87xx, Nuvoton NCT67xx)
+KERNEL=="port", TAG+="uaccess"
+
+# sinfo_io kernel module (atomic Super I/O register reads)
+KERNEL=="sinfo_io", TAG+="uaccess"
+
+# resctrl (LLC occupancy / MBM) is deliberately excluded: it is a filesystem
+# mount point, not a device node, and requires "mount -t resctrl resctrl
+# /sys/fs/resctrl" with appropriate privileges — udev cannot handle it.

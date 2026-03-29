@@ -9,8 +9,13 @@ pkgdesc="Hardware information and real-time sensor monitoring tool"
 arch=(x86_64 aarch64)
 url="https://github.com/level1techs/siomon"
 license=('MIT')
+# libcap: provides setcap(8), used by siomon.install post_install() to grant
+#   cap_perfmon (perf_event_open for L3 cache hit rate) and cap_sys_rawio
+#   (direct I/O port access for Super I/O chips) on the sio binary, so
+#   sensors work without running as root.
 depends=('glibc'
-         'libgcc')
+         'libgcc'
+         'libcap')
 optdepends=('nvidia-utils: GPU name, VRAM, clocks, temp, power, utilization'
             'dmidecode: Per-DIMM memory details'
             'msr-tools: CPU TDP, turbo ratios, C-states, perf limiters'
@@ -18,6 +23,10 @@ optdepends=('nvidia-utils: GPU name, VRAM, clocks, temp, power, utilization'
             'hddtemp: SATA drive temperatures via hwmon')
 makedepends=('git'
              'cargo')
+# siomon.install hooks:
+#   post_install: setcap on the binary (udev/tmpfiles already handled by pre-existing libalpm hooks shipped by default on any Arch system)
+#   post_upgrade: same as post_install
+install=siomon.install
 options=()
 _tag=2f0b399085de511ff14d8a8a2b69c71f7a40558c # git rev-parse "v$pkgver"
 source=("siomon::git+https://github.com/level1techs/siomon.git#tag=$_tag")
@@ -48,4 +57,12 @@ package() {
     export RUSTUP_TOOLCHAIN=stable
     cargo install --no-track --frozen --all-features --root "$pkgdir/usr/" --path .
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+
+    # udev: TAG+="uaccess" for sensor device nodes (no group needed)
+    install -Dm644 packaging/udev/50-siomon.rules \
+        "$pkgdir/usr/lib/udev/rules.d/50-siomon.rules"
+
+    # tmpfiles.d: RAPL sysfs is 0400 root — make world-readable at boot
+    install -Dm644 packaging/tmpfiles/siomon.conf \
+        "$pkgdir/usr/lib/tmpfiles.d/siomon.conf"
 }

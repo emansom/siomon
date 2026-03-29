@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+
+# udev (TAG+="uaccess") and tmpfiles.d (RAPL sysfs) are handled by
+# debhelper via #DEBHELPER# below. Only setcap needs to be done explicitly.
+#
+# udev reload and tmpfiles --create are injected automatically by
+# dh_installudev and dh_installtmpfiles into #DEBHELPER# below
+# — do not add them here.
+
+case "$1" in
+    configure)
+        setcap cap_perfmon,cap_sys_rawio=ep /usr/bin/sio
+        ;;
+esac
+
+#DEBHELPER#

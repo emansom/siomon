@@ -2,16 +2,29 @@ Source: siomon
 Section: utils
 Priority: optional
 Maintainer: Level1Techs Package Team <level1techspackageteam@gmail.com>
-Build-Depends: debhelper-compat (= 13), cargo, rustc (>= 1.85)
+# libcap2-bin: provides setcap(8), used in override_dh_fixperms to set
+#   cap_perfmon + cap_sys_rawio on the sio binary so sensors work without root.
+#   Also needed at build time because dh_fixperms strips capabilities and we
+#   must re-apply them before the .deb is assembled.
+Build-Depends: debhelper-compat (= 13), cargo, rustc (>= 1.85), libcap2-bin
 Standards-Version: 4.6.2
 Homepage: https://github.com/level1techs/siomon
 Vcs-Git: https://github.com/level1techs/siomon.git
 Vcs-Browser: https://github.com/level1techs/siomon
-Rules-Requires-Root: no
+# Rules-Requires-Root: yes is required — not optional. override_dh_fixperms
+# calls setcap(8) which needs CAP_SETFCAP (i.e. root). With "no", debhelper
+# does not run the override as root; setcap silently fails and the packaged
+# binary has no capabilities. postinst re-applies setcap at install time,
+# but the build artifact itself would be wrong.
+Rules-Requires-Root: yes
 
 Package: siomon
 Architecture: amd64 arm64
-Depends: ${shlibs:Depends}, ${misc:Depends}
+# libcap2-bin: runtime dependency — postinst re-applies setcap on the binary
+#   after each install/upgrade. Sensor device access is handled by udev rules
+#   (TAG+="uaccess" via siomon.udev) and RAPL sysfs permissions by
+#   systemd-tmpfiles (siomon.tmpfiles). No custom groups required.
+Depends: ${shlibs:Depends}, ${misc:Depends}, libcap2-bin
 Description: Linux hardware information and sensor monitoring tool
  siomon provides comprehensive Linux hardware information and real-time
  sensor monitoring as a single static binary. It supports detailed hardware

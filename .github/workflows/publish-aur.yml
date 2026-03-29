@@ -102,6 +102,7 @@ jobs:
           useradd -m builder
 
           cp packaging/aur/PKGBUILD /home/builder/PKGBUILD
+          cp packaging/aur/siomon.install /home/builder/siomon.install
           cd /home/builder
 
           # Update version fields
@@ -109,7 +110,7 @@ jobs:
           sed -i "s/^_tag=.*/_tag=${COMMIT_HASH} # git rev-parse \"v\$pkgver\"/" PKGBUILD
           sed -i "s/^pkgrel=.*/pkgrel=${PKGREL}/" PKGBUILD
 
-          chown builder:builder PKGBUILD
+          chown builder:builder PKGBUILD siomon.install
 
           # Recompute checksums
           echo "==> Recomputing b2sums..."
@@ -166,8 +167,9 @@ jobs:
 
           cp /home/builder/PKGBUILD .
           cp /home/builder/.SRCINFO .
+          cp /home/builder/siomon.install .
 
-          git add PKGBUILD .SRCINFO
+          git add PKGBUILD .SRCINFO siomon.install
           if git diff --cached --quiet; then
             echo "No changes to push."
           else
