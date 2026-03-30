@@ -8,6 +8,7 @@ license = "MIT"
 keywords = ["hardware", "sensors", "hwmon", "system-info", "monitoring"]
 categories = ["command-line-utilities", "hardware-support"]
 repository = "https://github.com/level1techs/siomon"
+exclude = ["packaging/", "assets/", "kmod/", ".github/", "CONTRIBUTING.md", "PACKAGING.md", "cliff.toml"]
 
 [[bin]]
 name = "sio"
