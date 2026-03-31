@@ -82,9 +82,12 @@ jobs:
   publish-aur:
     name: Publish to AUR
     needs: [github-release]
+    permissions:
+      contents: read
     uses: ./.github/workflows/publish-aur.yml
     with:
       tag: ${{ github.ref_name }}
+      package: siomon
     secrets:
       AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
       PKG_GIT_NAME: ${{ secrets.PKG_GIT_NAME }}

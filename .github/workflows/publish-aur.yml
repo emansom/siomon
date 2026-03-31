@@ -149,7 +149,8 @@ jobs:
           echo "$AUR_SSH_PRIVATE_KEY" > "$HOME/.ssh/aur_key"
           chmod 600 "$HOME/.ssh/aur_key"
 
-          # Pre-populate known_hosts with AUR's SSH host key
+          # Pre-populate known_hosts with AUR's SSH host key to avoid TOFU prompts.
+          # See: https://wiki.archlinux.org/title/AUR_submission_guidelines#Authentication
           ssh-keyscan -t ed25519,rsa aur.archlinux.org >> "$HOME/.ssh/known_hosts"
 
           # Use GIT_SSH_COMMAND to ensure git uses our key and known_hosts

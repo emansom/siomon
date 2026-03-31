@@ -26,12 +26,15 @@ b2sums=('745141ab3c7a789c271ffa4ed55fab1555ed312c3c2067b32be6b38cf03e0166bbb8aae
 prepare() {
     cd "$srcdir/$pkgname"
     export RUSTUP_TOOLCHAIN=stable
+    # "host-tuple" is a valid Cargo target specifier that resolves to the host's
+    # target triple at runtime. See: https://doc.rust-lang.org/cargo/commands/cargo-fetch.html#option-cargo-fetch---target
     cargo fetch --locked --target host-tuple
 }
 
 build() {
     cd "$srcdir/$pkgname"
-    # no-op, cargo install builds for us
+    # Intentionally empty: cargo install in package() forces a rebuild regardless.
+    # See: https://wiki.archlinux.org/title/Rust_package_guidelines#Notes_about_using_cargo_install
 }
 
 check() {
