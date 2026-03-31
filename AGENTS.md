@@ -33,3 +33,7 @@ cargo test --all-features
 cargo clippy --all-features -- -D warnings -A dead_code
 cargo build --release --all-features
 ```
+
+## Formatting
+
+Always run `cargo fmt` on any Rust source files you modify. CI enforces `cargo fmt --check` and will fail if formatting is off.
