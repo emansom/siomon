@@ -32,6 +32,25 @@ pub fn load_labels(
     (labels, platform)
 }
 
+/// Load hwmon voltage scaling multipliers. Checks:
+/// 1. Built-in board-specific scaling (matched by board name from DMI)
+/// 2. User overrides from config file (these take precedence)
+pub fn load_voltage_scaling(
+    board_name: Option<&str>,
+    user_scaling: &HashMap<String, f64>,
+) -> HashMap<String, f64> {
+    let mut scaling = HashMap::new();
+
+    if let Some(board) = board_name.and_then(super::boards::lookup_board) {
+        scaling = super::boards::resolve_voltage_scaling(board);
+    }
+
+    // User scaling overrides built-ins
+    scaling.extend(user_scaling.iter().map(|(k, &v)| (k.clone(), v)));
+
+    scaling
+}
+
 /// Read the board name from DMI sysfs.
 pub fn read_board_name() -> Option<String> {
     crate::platform::sysfs::read_string_optional(std::path::Path::new(
@@ -120,5 +139,30 @@ mod tests {
         let (labels, _) = load_labels(None, &user);
         assert_eq!(labels.len(), 1);
         assert_eq!(labels.get("hwmon/coretemp/temp1").unwrap(), "CPU Package");
+    }
+
+    #[test]
+    fn test_voltage_scaling_from_board() {
+        let scaling = load_voltage_scaling(Some("Pro WS WRX90E-SAGE SE"), &HashMap::new());
+        assert_eq!(*scaling.get("hwmon/nct6798/in1").unwrap(), 5.0);
+        assert_eq!(*scaling.get("hwmon/nct6798/in4").unwrap(), 12.0);
+    }
+
+    #[test]
+    fn test_voltage_scaling_user_override() {
+        let mut user = HashMap::new();
+        user.insert("hwmon/nct6798/in1".into(), 4.8);
+
+        let scaling = load_voltage_scaling(Some("Pro WS WRX90E-SAGE SE"), &user);
+        // User override wins
+        assert_eq!(*scaling.get("hwmon/nct6798/in1").unwrap(), 4.8);
+        // Built-in preserved for other channels
+        assert_eq!(*scaling.get("hwmon/nct6798/in4").unwrap(), 12.0);
+    }
+
+    #[test]
+    fn test_voltage_scaling_unknown_board() {
+        let scaling = load_voltage_scaling(Some("Unknown Board XYZ"), &HashMap::new());
+        assert!(scaling.is_empty());
     }
 }
