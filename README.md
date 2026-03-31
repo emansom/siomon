@@ -25,6 +25,19 @@ sudo apt install siomon
 paru -S siomon
 ```
 
+### Nix
+
+```bash
+# NixOS (add to configuration.nix)
+environment.systemPackages = [ pkgs.siomon ];
+
+# Non-NixOS / nix profile
+nix profile install nixpkgs#siomon
+
+# Temporary shell
+nix-shell -p siomon
+```
+
 More installation options are planned. If you'd like to help package siomon
 for other distributions, see [issue #4](https://github.com/level1techs/siomon/issues/4).
 
