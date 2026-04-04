@@ -257,7 +257,7 @@ jobs:
               "$BUILD_DIR/debian/control"
 
             # Adjust cargo binary name in rules
-            sed -i "s|cargo build|${CARGO_BIN} build|; s|cargo clean|${CARGO_BIN} clean|" \
+            sed -i "s|cargo build|${CARGO_BIN} build|; s|cargo clean|${CARGO_BIN} clean|; s|cargo run|${CARGO_BIN} run|" \
               "$BUILD_DIR/debian/rules"
 
             # Build source-only package — Launchpad compiles in clean chroots,

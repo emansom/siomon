@@ -7,6 +7,14 @@ re_data/
 *.kdbx*
 *-ssh+gpg-keys*
 
+# local Arch/AUR package testing
+packaging/aur/src
+packaging/aur/pkg
+packaging/aur/siomon
+packaging/aur/*.tar.zst
+packaging/aur/*.tar.xz
+packaging/aur/*.tar.7z
+
 # Kernel module build artifacts
 kmod/*/*.o
 kmod/*/*.ko
