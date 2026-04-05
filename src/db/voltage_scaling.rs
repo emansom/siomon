@@ -95,6 +95,31 @@ pub static ASUS_WRX90E_SAGE: [VoltageChannel; 18] = [
 ];
 
 // ---------------------------------------------------------------------------
+// ASUS Pro WS TRX50-SAGE WIFI A (AMD TRX50, NCT6799D)
+// Calibrated from BIOS Monitor page and direct-io readings.
+// ---------------------------------------------------------------------------
+pub static ASUS_TRX50_SAGE: [VoltageChannel; 18] = [
+    VoltageChannel::direct("CPU Core0"),      // VIN0
+    VoltageChannel::new("+5V", 5.0),          // VIN1
+    VoltageChannel::direct("AVCC"),           // VIN2
+    VoltageChannel::direct("+3.3V"),          // VIN3
+    VoltageChannel::new("+12V", 12.0),        // VIN4
+    VoltageChannel::direct("VIN5"),           // VIN5
+    VoltageChannel::direct("VIN6"),           // VIN6
+    VoltageChannel::direct("VIN7"),           // VIN7
+    VoltageChannel::direct("Vbat"),           // VIN8
+    VoltageChannel::direct("VTT"),            // VIN9
+    VoltageChannel::direct("CPU VDDIO"),      // VIN10
+    VoltageChannel::direct("VIN11"),          // VIN11
+    VoltageChannel::direct("VDD_11_S3 / MC"), // VIN12
+    VoltageChannel::direct("VIN13"),          // VIN13
+    VoltageChannel::direct("VIN14"),          // VIN14
+    VoltageChannel::direct("CPU VSOC"),       // VIN15
+    VoltageChannel::direct("VIN16"),          // VIN16
+    VoltageChannel::direct("VIN17"),          // VIN17
+];
+
+// ---------------------------------------------------------------------------
 // Shared ASUS AM5 NCT6798D voltage scaling (Crosshair/Strix/TUF X670E)
 // Based on LibreHardwareMonitor Nct677X.cs patterns for ASUS AM5 boards
 // ---------------------------------------------------------------------------
@@ -141,6 +166,17 @@ mod tests {
         let config = lookup_nct6798(Some("ROG CROSSHAIR X670E HERO"));
         assert!(config.is_some());
         assert_eq!(config.unwrap()[0].label, "Vcore");
+    }
+
+    #[test]
+    fn test_lookup_trx50_sage() {
+        let config = lookup_nct6798(Some("Pro WS TRX50-SAGE WIFI A"));
+        assert!(config.is_some());
+        let channels = config.unwrap();
+        assert_eq!(channels[1].label, "+5V");
+        assert_eq!(channels[1].multiplier, 5.0);
+        assert_eq!(channels[4].label, "+12V");
+        assert_eq!(channels[4].multiplier, 12.0);
     }
 
     #[test]
