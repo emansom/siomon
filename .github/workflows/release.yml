@@ -93,6 +93,18 @@ jobs:
       PKG_GIT_NAME: ${{ secrets.PKG_GIT_NAME }}
       PKG_GIT_EMAIL: ${{ secrets.PKG_GIT_EMAIL }}
 
+  publish-opensuse:
+    name: Publish to openSUSE
+    needs: [github-release]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/publish-opensuse.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets:
+      OBS_USERNAME: ${{ secrets.OBS_USERNAME }}
+      OBS_PASSWORD: ${{ secrets.OBS_PASSWORD }}
+
   publish-ppa:
     name: Publish to PPA
     needs: [github-release]

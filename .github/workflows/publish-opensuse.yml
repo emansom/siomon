@@ -1,0 +1,52 @@
+name: Publish to openSUSE
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Git tag to build (e.g., v0.3.0)'
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+    secrets:
+      OBS_USERNAME:
+        required: true
+      OBS_PASSWORD:
+        required: true
+
+jobs:
+  publish:
+    name: Build and push to openSUSE
+    runs-on: ubuntu-latest
+    container: opensuse/leap:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          zypper -n install git osc
+
+      - name: Configure OSC
+        env:
+          OBS_USERNAME: ${{ secrets.OBS_USERNAME }}
+          OBS_PASSWORD: ${{ secrets.OBS_PASSWORD }}
+        run: |
+          echo "user=$OBS_USERNAME" > ~/.oscrc
+          echo "password=$OBS_PASSWORD" >> ~/.oscrc
+          echo "host=build.opensuse.org" >> ~/.oscrc
+
+      - name: Update OBS Project
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          echo "==> Updating OBS project for tag $TAG"
+          # Assuming the subproject is already checked out or managed via 'osc up'
+          # We follow the logic from the issue comment
+          osc up
+          git pull
+          osc service mr
